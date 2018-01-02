@@ -4,12 +4,14 @@
 //
 //  Created by Matas Empakeris on 12/27/17.
 //  Copyright © 2017 Matas Empakeris. All rights reserved.
+//  Huge shoutout to Beltex (https://github.com/beltex) whose library (SystemKit) I used as learning material
 //
 
 import Darwin
 import Foundation
 
 public class SysInfo {
+    private static var prevCPULoad : host_cpu_load_info = SysInfo.hostCPULoadInfo()!
     
     // MARK: Public Methods
     
@@ -74,7 +76,7 @@ public class SysInfo {
         return fanSpeeds
     }
     
-    func maxFanSpeeds() -> [Int] {
+    public static func maxFanSpeeds() -> [Int] {
         var fanSpeeds:[Int] = []
         do {
             try SMCKit.open()
@@ -93,6 +95,60 @@ public class SysInfo {
         return fanSpeeds
     }
     
+    /**
+        returns cpu usage by category (system, user, idle, and other)
+    */
+    public static func cpuUsageByCategory() -> (system: Double,
+                                                user: Double,
+                                                idle: Double,
+                                                other: Double) {
+            // retrieve cpu ticks per category
+            let currentCPULoad = SysInfo.hostCPULoadInfo()
+            if currentCPULoad == nil  {
+                return (system: -1.0, user: -1.0, idle: -1.0, other: -1.0)
+            }
+            
+            // usage is calculated by subtracting cpu_ticks recorded at the previous call from
+            // the cpu_ticks recorded in the current call
+            let userDiff = Double(currentCPULoad!.cpu_ticks.0 - prevCPULoad.cpu_ticks.0)
+            let sysDiff = Double(currentCPULoad!.cpu_ticks.0 - prevCPULoad.cpu_ticks.1)
+            let idleDiff = Double(currentCPULoad!.cpu_ticks.2 - prevCPULoad.cpu_ticks.2)
+            let otherDiff = Double(currentCPULoad!.cpu_ticks.3 - prevCPULoad.cpu_ticks.3)
+            
+            let totalCPUTicks = userDiff + sysDiff + idleDiff + otherDiff
+                                                    
+            prevCPULoad = currentCPULoad!
+                                                    
+            return (sysDiff/totalCPUTicks*100,
+                    userDiff/totalCPUTicks*100,
+                    idleDiff/totalCPUTicks*100,
+                    otherDiff/totalCPUTicks*100)
+    }
+    
+    /**
+        returns memory usage by category (free, active, inactive, wired, compressed (activity monitor value))
+    */
+    public static func memoryUsageByCategory() -> (free : Double,
+                                                   active: Double,
+                                                   inactive: Double,
+                                                   wired: Double,
+                                                   compressed: Double) {
+            let stats = SysInfo.hostVirtualMemoryStatistics()
+            let Gigabyte = 1000000000.0
+            if stats == nil {
+                return (free: -1.0, active: -1.0, inactive: -1.0, wired: -1.0, compressed: -1.0)
+            }
+            
+            //stats only returns memory blocks used, so need to convert to gigabytes
+            let free = Double(stats!.free_count) * Double(PAGE_SIZE) / Gigabyte
+            let active = Double(stats!.active_count) * Double(PAGE_SIZE) / Gigabyte
+            let inactive = Double(stats!.inactive_count) * Double(PAGE_SIZE) / Gigabyte
+            let wired = Double(stats!.wire_count) * Double(PAGE_SIZE) / Gigabyte
+            let compressed = Double(stats!.compressor_page_count) * Double(PAGE_SIZE) / Gigabyte
+            
+            return (free, active, inactive, wired, compressed)
+    }
+    
     // MARK: Private Methods
     
     private static func homeFileSystemAttributeDict() throws -> [FileAttributeKey : Any] {
@@ -105,5 +161,55 @@ public class SysInfo {
         }
         
         return fileSystemAttributeDict
+    }
+    
+    /**
+        retrieves processor load data
+     */
+    private static func hostCPULoadInfo() -> host_cpu_load_info? {
+        //retrieve Host load info count
+        var size = UInt32(MemoryLayout<host_cpu_load_info_data_t>.size/MemoryLayout<integer_t>.size)
+        
+        //alloc host info UnsafeMutablePointer with one instance
+        let hostInfo = host_cpu_load_info_t.allocate(capacity: 1)
+        
+        //rebind pointer temporarily to an integer_t to use with FreeBSD method host_statistics
+        let result = hostInfo.withMemoryRebound(to: integer_t.self, capacity: Int(size)) {
+            host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &size)
+        }
+        
+        if result != KERN_SUCCESS {
+            print("An error occurred in host_statistics")
+            return nil
+        }
+        
+        //returns pointee of hostInfo and sets data to that
+        let data = hostInfo.move()
+        
+        hostInfo.deallocate(capacity: 1)
+        
+        return data
+    }
+    
+    /**
+        retrieves stats related to virtual memory usage by category (free, active, inactive, wired, compressed)
+    */
+    private static func hostVirtualMemoryStatistics() -> vm_statistics64? {
+        var size = UInt32(MemoryLayout<vm_statistics64_data_t>.size/MemoryLayout<integer_t>.size)
+        let hostInfo = vm_statistics64_t.allocate(capacity: 1)
+        
+        let result = hostInfo.withMemoryRebound(to: integer_t.self, capacity: Int(size)) {
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &size)
+        }
+        
+        let data = hostInfo.move()
+        hostInfo.deallocate(capacity: 1)
+        
+        if result != KERN_SUCCESS {
+            print("An error occurred in host_statistics")
+            return nil
+        }
+        
+        return data
     }
 }
