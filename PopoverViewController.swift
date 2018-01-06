@@ -9,11 +9,16 @@
 import Cocoa
 
 class PopoverViewController: NSViewController {
-
+    @IBOutlet weak var batteryHealth: NSTextField!
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Do any additional setup after loading the view.
+        let batteryHealth = SysInfo.batteryHealth()
+        if batteryHealth == -1 || batteryHealth == -2 {
+            self.batteryHealth.stringValue = "N/A"
+        } else {
+            self.batteryHealth.stringValue = "\(batteryHealth!)"
+        }
     }
 
     override var representedObject: Any? {

@@ -7,6 +7,8 @@
 //  Huge shoutout to Beltex (https://github.com/beltex) whose library (SystemKit) I used as learning material
 //
 
+import IOKit.pwr_mgt
+import IOKit.ps
 import Darwin
 import Foundation
 
@@ -149,7 +151,58 @@ public class SysInfo {
             return (free, active, inactive, wired, compressed)
     }
     
+    /**
+     //TODO: Double check that this behaves properly
+        returns max capacity of the battery if there is one. Returns nil if battery doesn't exist
+    */
+    public static func batteryHealth() -> Int! {
+        enum exitCode: Int {
+            case IOPSError = -1
+            case NotMacbook = -2
+        }
+        
+        if macModel().range(of:"Book") == nil {
+            print(macModel())
+            return exitCode.NotMacbook.rawValue
+        }
+        
+        let psBlob = IOPSCopyPowerSourcesInfo().takeRetainedValue()
+        let psList = IOPSCopyPowerSourcesList(psBlob).takeRetainedValue() as [CFTypeRef]
+        guard
+            let psDesc = IOPSGetPowerSourceDescription(psBlob, psList[0])?.takeUnretainedValue(),
+            let value = (psDesc as NSDictionary)[kIOPSMaxCapacityKey] as? Int
+            else {
+                print("batteryHealth: max capacity could not be found")
+                return exitCode.IOPSError.rawValue
+        }
+        
+        return value
+    }
+    
     // MARK: Private Methods
+    
+    private static func macModel() -> String {
+        let mib = UnsafeMutablePointer<Int32>.allocate(capacity: 2)
+        mib[0] = CTL_HW
+        mib[1] = HW_MODEL
+        
+        // get buffer length from sysctl for model char*
+        let nameLen = UnsafeMutablePointer<size_t>.allocate(capacity: MemoryLayout<size_t>.size)
+        sysctl(mib, 2, nil, nameLen, nil, 0)
+        
+        // call sysctl again after allocating pointer with nameLen as required
+        let name = UnsafeMutableRawPointer.allocate(bytes: nameLen.pointee, alignedTo: 1)
+        sysctl(mib, 2, name, nameLen, nil, 0)
+        
+        let nameptr = name.bindMemory(to: CChar.self, capacity: MemoryLayout.size(ofValue: name))
+        let model = String(cString: nameptr)
+        
+        mib.deallocate(capacity: 2)
+        nameLen.deallocate(capacity: MemoryLayout<size_t>.size)
+        name.deallocate(bytes: nameLen.pointee, alignedTo: 1)
+        
+        return model
+    }
     
     private static func homeFileSystemAttributeDict() throws -> [FileAttributeKey : Any] {
         var fileSystemAttributeDict = [FileAttributeKey : Any]()
