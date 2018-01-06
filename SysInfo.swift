@@ -162,7 +162,6 @@ public class SysInfo {
         }
         
         if macModel().range(of:"Book") == nil {
-            print(macModel())
             return exitCode.NotMacbook.rawValue
         }
         
