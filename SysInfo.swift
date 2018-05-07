@@ -36,7 +36,7 @@ public class SysInfo {
             let fileSystemAttributeDict = try? homeFileSystemAttributeDict()
             else {
                 //Some error occurred
-                return -1
+                return -1.0
         }
         
         //calculate space free in gigabytes
@@ -190,15 +190,15 @@ public class SysInfo {
         sysctl(mib, 2, nil, nameLen, nil, 0)
         
         // call sysctl again after allocating pointer with nameLen as required
-        let name = UnsafeMutableRawPointer.allocate(bytes: nameLen.pointee, alignedTo: 1)
+        let name = UnsafeMutableRawPointer.allocate(byteCount: nameLen.pointee, alignment: 1)
         sysctl(mib, 2, name, nameLen, nil, 0)
         
         let nameptr = name.bindMemory(to: CChar.self, capacity: MemoryLayout.size(ofValue: name))
         let model = String(cString: nameptr)
         
-        mib.deallocate(capacity: 2)
-        nameLen.deallocate(capacity: MemoryLayout<size_t>.size)
-        name.deallocate(bytes: nameLen.pointee, alignedTo: 1)
+        mib.deallocate()
+        nameLen.deallocate()
+        name.deallocate()
         
         return model
     }
@@ -238,7 +238,7 @@ public class SysInfo {
         //returns pointee of hostInfo and sets data to that
         let data = hostInfo.move()
         
-        hostInfo.deallocate(capacity: 1)
+        hostInfo.deallocate()
         
         return data
     }
@@ -255,7 +255,7 @@ public class SysInfo {
         }
         
         let data = hostInfo.move()
-        hostInfo.deallocate(capacity: 1)
+        hostInfo.deallocate()
         
         if result != KERN_SUCCESS {
             print("An error occurred in host_statistics")
