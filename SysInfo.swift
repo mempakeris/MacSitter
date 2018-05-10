@@ -13,36 +13,45 @@ import Darwin
 import Foundation
 
 public class SysInfo {
-    private static var prevCPULoad : host_cpu_load_info = SysInfo.hostCPULoadInfo()!
+    private static var prevCPULoad : host_cpu_load_info? = hostCPULoadInfo()
     
     // MARK: Public Methods
     
-    public static func totalHddSpace() -> Float {
+    public static func totalHddSpace() -> Double? {
         guard
             let fileSystemAttributeDict = try? homeFileSystemAttributeDict()
             else {
-                //Some error occurred
-                return -1
+                return nil
         }
         
         //calculate space left in gigabytes
         let totalSpace = fileSystemAttributeDict[.systemSize] as! NSNumber
-        let gigabyteDivider : Float = 1000000000.0
-        return totalSpace.floatValue / gigabyteDivider
+        let gigabyteDivider : Double = 1000000000.0
+        return Double(totalSpace.doubleValue / gigabyteDivider).roundTo(places: 1)
     }
     
-    public static func freeHddSpace() -> Float {
+    public static func freeHddSpace() -> Double? {
         guard
             let fileSystemAttributeDict = try? homeFileSystemAttributeDict()
             else {
-                //Some error occurred
-                return -1.0
+                return nil
         }
         
         //calculate space free in gigabytes
         let freeSpace = fileSystemAttributeDict[.systemFreeSize] as! NSNumber
-        let gigabyteDivider : Float = 1000000000.0
-        return freeSpace.floatValue / gigabyteDivider
+        let gigabyteDivider : Double = 1000000000.0
+        return Double(freeSpace.doubleValue / gigabyteDivider).roundTo(places: 1)
+    }
+    
+    public static func usedHddSpace() -> Double? {
+        guard
+            let totalHddSpace = totalHddSpace(),
+            let freeHddSpace = freeHddSpace()
+            else {
+                return nil
+        }
+        
+        return Double(totalHddSpace - freeHddSpace).roundTo(places: 1)
     }
     
     public static func cpuTemperature(_ temperatureUnit:TemperatureUnit) -> Double {
@@ -105,21 +114,23 @@ public class SysInfo {
                                                 idle: Double,
                                                 other: Double) {
             // retrieve cpu ticks per category
-            let currentCPULoad = SysInfo.hostCPULoadInfo()
-            if currentCPULoad == nil  {
-                return (system: -1.0, user: -1.0, idle: -1.0, other: -1.0)
+            guard
+                let currentCPULoad = SysInfo.hostCPULoadInfo(),
+                let prevCPULoad = self.prevCPULoad
+                else {
+                    return (system: -1.0, user: -1.0, idle: -1.0, other: -1.0)
             }
             
             // usage is calculated by subtracting cpu_ticks recorded at the previous call from
             // the cpu_ticks recorded in the current call
-            let userDiff = Double(currentCPULoad!.cpu_ticks.0 - prevCPULoad.cpu_ticks.0)
-            let sysDiff = Double(currentCPULoad!.cpu_ticks.0 - prevCPULoad.cpu_ticks.1)
-            let idleDiff = Double(currentCPULoad!.cpu_ticks.2 - prevCPULoad.cpu_ticks.2)
-            let otherDiff = Double(currentCPULoad!.cpu_ticks.3 - prevCPULoad.cpu_ticks.3)
+            let userDiff = Double(currentCPULoad.cpu_ticks.0 - prevCPULoad.cpu_ticks.0)
+            let sysDiff = Double(currentCPULoad.cpu_ticks.0 - prevCPULoad.cpu_ticks.1)
+            let idleDiff = Double(currentCPULoad.cpu_ticks.2 - prevCPULoad.cpu_ticks.2)
+            let otherDiff = Double(currentCPULoad.cpu_ticks.3 - prevCPULoad.cpu_ticks.3)
             
             let totalCPUTicks = userDiff + sysDiff + idleDiff + otherDiff
                                                     
-            prevCPULoad = currentCPULoad!
+            self.prevCPULoad = currentCPULoad
                                                     
             return (sysDiff/totalCPUTicks*100,
                     userDiff/totalCPUTicks*100,
@@ -135,18 +146,19 @@ public class SysInfo {
                                                    inactive: Double,
                                                    wired: Double,
                                                    compressed: Double) {
-            let stats = SysInfo.hostVirtualMemoryStatistics()
             let Gigabyte = 1000000000.0
-            if stats == nil {
-                return (free: -1.0, active: -1.0, inactive: -1.0, wired: -1.0, compressed: -1.0)
+            guard
+                let stats = SysInfo.hostVirtualMemoryStatistics()
+                else {
+                    return (free: -1.0, active: -1.0, inactive: -1.0, wired: -1.0, compressed: -1.0)
             }
             
             //stats only returns memory blocks used, so need to convert to gigabytes
-            let free = Double(stats!.free_count) * Double(PAGE_SIZE) / Gigabyte
-            let active = Double(stats!.active_count) * Double(PAGE_SIZE) / Gigabyte
-            let inactive = Double(stats!.inactive_count) * Double(PAGE_SIZE) / Gigabyte
-            let wired = Double(stats!.wire_count) * Double(PAGE_SIZE) / Gigabyte
-            let compressed = Double(stats!.compressor_page_count) * Double(PAGE_SIZE) / Gigabyte
+            let free = Double(stats.free_count) * Double(PAGE_SIZE) / Gigabyte
+            let active = Double(stats.active_count) * Double(PAGE_SIZE) / Gigabyte
+            let inactive = Double(stats.inactive_count) * Double(PAGE_SIZE) / Gigabyte
+            let wired = Double(stats.wire_count) * Double(PAGE_SIZE) / Gigabyte
+            let compressed = Double(stats.compressor_page_count) * Double(PAGE_SIZE) / Gigabyte
             
             return (free, active, inactive, wired, compressed)
     }
@@ -155,14 +167,9 @@ public class SysInfo {
      //TODO: Double check that this behaves properly
         returns max capacity of the battery if there is one. Returns nil if battery doesn't exist
     */
-    public static func batteryHealth() -> Int! {
-        enum exitCode: Int {
-            case IOPSError = -1
-            case NotMacbook = -2
-        }
-        
+    public static func batteryHealth() -> Int? {
         if macModel().range(of:"Book") == nil {
-            return exitCode.NotMacbook.rawValue
+           return nil
         }
         
         let psBlob = IOPSCopyPowerSourcesInfo().takeRetainedValue()
@@ -172,7 +179,7 @@ public class SysInfo {
             let value = (psDesc as NSDictionary)[kIOPSMaxCapacityKey] as? Int
             else {
                 print("batteryHealth: max capacity could not be found")
-                return exitCode.IOPSError.rawValue
+                return nil
         }
         
         return value
